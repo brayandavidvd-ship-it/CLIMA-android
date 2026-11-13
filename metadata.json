@@ -1,0 +1,6 @@
+{
+  "name": "Clima",
+  "description": "Aplicación minimalista de clima con animaciones atmosféricas dinámicas, datos de Open-Meteo, recomendaciones locales y asistente Gemini.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

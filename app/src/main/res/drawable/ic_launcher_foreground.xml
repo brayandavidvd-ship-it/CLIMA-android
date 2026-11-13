@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Soft yellow sun in upper right -->
+    <path
+        android:fillColor="#FFD54A"
+        android:pathData="M66,26 A14,14 0 1,0 66,54 A14,14 0 1,0 66,26 Z" />
+
+    <!-- Clean geometric white cloud in foreground -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M37,52 A10,10 0 1,0 37,72 L67,72 A10,10 0 1,0 67,52 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M47,36 A14,14 0 1,0 47,64 A14,14 0 1,0 47,36 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M62,44 A10,10 0 1,0 62,64 A10,10 0 1,0 62,44 Z" />
+</vector>
