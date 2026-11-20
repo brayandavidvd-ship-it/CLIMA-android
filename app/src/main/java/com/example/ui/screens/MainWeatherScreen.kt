@@ -1,52 +1,64 @@
 package com.example.ui.screens
 
 import android.Manifest
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.rounded.Send
-import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.LocationOn
-import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
+import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -54,60 +66,72 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.BuildConfig
 import com.example.R
-import com.example.model.LocalRecommendation
-import com.example.model.WeatherChipType
-import com.example.model.WeatherProviderOption
+import com.example.model.CitySearchResult
+import com.example.model.DailyForecastItem
+import com.example.model.HourlyForecastItem
 import com.example.model.WeatherSnapshot
 import com.example.model.WeatherVisualState
 import com.example.ui.atmospheric.AtmosphericBackground
-import com.example.ui.components.CitySearchBottomSheet
-import com.example.ui.components.GlassSurface
-import com.example.ui.components.PulsingSparkleIcon
-import com.example.ui.components.RecommendationCircularIcon
-import com.example.ui.components.SimulationStatusBanner
-import com.example.ui.components.ThreeDotsThinkingIndicator
+import com.example.ui.components.JumpingThreeDots
+import com.example.ui.components.OpaqueCard
+import com.example.ui.components.OpaqueCircleButton
+import com.example.ui.components.OpaqueSkeletonCard
+import com.example.ui.components.SparkleVectorIcon
+import com.example.ui.components.StaggeredEntrance
 import com.example.ui.components.TypewriterText
+import com.example.ui.components.WeatherDetailsGrid
+import com.example.ui.components.WeatherIcon
 import com.example.ui.state.ClimaUiState
+import com.example.ui.theme.AccentBlue
+import com.example.ui.theme.LightShapeViolet
+import com.example.ui.theme.OpaqueCardColor
+import com.example.ui.theme.TextPrimary
+import com.example.ui.theme.TextSecondary
+import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 import kotlin.math.roundToInt
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainWeatherScreen(
     uiState: ClimaUiState,
+    canNavigateBack: Boolean,
     hasLocationPermission: () -> Boolean,
-    onLocationPermissionResult: (Boolean) -> Unit,
+    onPermissionResult: (Boolean) -> Unit,
+    onNavigateBack: () -> Unit,
     onRefresh: () -> Unit,
+    onUseAutoLocation: () -> Unit,
     onOpenCitySearch: () -> Unit,
     onCloseCitySearch: () -> Unit,
     onCityQueryChange: (String) -> Unit,
-    onCitySelected: (com.example.model.CitySearchResult) -> Unit,
-    onUseAutoLocation: () -> Unit,
-    onChipClick: (WeatherChipType) -> Unit,
-    onAskQuestion: (String) -> Unit,
-    onOpenDetails: () -> Unit,
-    onOpenSettings: () -> Unit,
+    onCitySelected: (CitySearchResult) -> Unit,
+    onToggleReduceAnimations: () -> Unit,
+    onRetryAiSummary: () -> Unit,
+    onOpenChat: () -> Unit,
+    onSelectDebugState: (WeatherVisualState?) -> Unit,
     onExitDebugSimulation: () -> Unit,
 ) {
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
-        onResult = onLocationPermissionResult,
+        onResult = onPermissionResult,
     )
 
     var requestedInitialPermission by rememberSaveable { mutableStateOf(false) }
@@ -118,293 +142,444 @@ fun MainWeatherScreen(
         }
     }
 
-    val snapshot = uiState.activeSnapshot
-    val visualState = snapshot?.visualState ?: WeatherVisualState.CLOUDY
-    val isDay = snapshot?.isDay ?: true
+    val scrollState = rememberScrollState()
+    val coroutineScope = rememberCoroutineScope()
+    var isMenuExpanded by remember { mutableStateOf(false) }
+    var isDebugDialogOpen by remember { mutableStateOf(false) }
 
-    var questionInput by rememberSaveable { mutableStateOf("") }
-    val keyboardController = LocalSoftwareKeyboardController.current
+    BackHandler(enabled = scrollState.value > 120) {
+        coroutineScope.launch {
+            scrollState.animateScrollTo(0)
+        }
+    }
+
+    val snapshot = uiState.activeSnapshot
+    val visualState = snapshot?.visualState ?: WeatherVisualState.STORM
 
     Box(modifier = Modifier.fillMaxSize()) {
         AtmosphericBackground(
             visualState = visualState,
-            isDay = isDay,
-            reduceAnimations = uiState.settings.reduceAnimations,
+            userReduceAnimations = uiState.userReduceAnimations,
         )
 
-        Scaffold(
-            containerColor = Color.Transparent,
-            contentColor = Color.White,
-            contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        ) { _ ->
-            Column(
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(top = 8.dp, bottom = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            TopWeatherBar(
+                cityName = snapshot?.cityName ?: stringResource(R.string.your_location_fallback),
+                canNavigateBack = canNavigateBack,
+                isMenuExpanded = isMenuExpanded,
+                userReduceAnimations = uiState.userReduceAnimations,
+                isDebugSimulationActive = uiState.isDebugSimulationActive,
+                onBackClick = onNavigateBack,
+                onTitleClick = onOpenCitySearch,
+                onMenuOpen = { isMenuExpanded = true },
+                onMenuDismiss = { isMenuExpanded = false },
+                onRefreshClick = {
+                    isMenuExpanded = false
+                    onRefresh()
+                },
+                onSearchCityClick = {
+                    isMenuExpanded = false
+                    onOpenCitySearch()
+                },
+                onRequestLocationClick = {
+                    isMenuExpanded = false
+                    if (hasLocationPermission()) {
+                        onUseAutoLocation()
+                    } else {
+                        permissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+                    }
+                },
+                onToggleReduceAnimations = {
+                    isMenuExpanded = false
+                    onToggleReduceAnimations()
+                },
+                onOpenDebugDialog = {
+                    isMenuExpanded = false
+                    isDebugDialogOpen = true
+                },
+                onExitDebugClick = {
+                    isMenuExpanded = false
+                    onExitDebugSimulation()
+                },
                 modifier = Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
-                    .navigationBarsPadding()
-                    .imePadding(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                PullToRefreshBox(
-                    isRefreshing = uiState.isRefreshing,
-                    onRefresh = onRefresh,
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                ) {
-                    BoxWithConstraints(
-                        modifier = Modifier
-                            .fillMaxSize(),
-                    ) {
-                        val minContentHeight = maxHeight
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .widthIn(max = 600.dp)
-                                .heightIn(min = minContentHeight)
-                                .align(Alignment.TopCenter)
-                                .verticalScroll(rememberScrollState())
-                                .padding(horizontal = 20.dp),
-                        ) {
-                            if (BuildConfig.DEBUG && uiState.isDebugSimulationActive) {
-                                Spacer(modifier = Modifier.height(8.dp))
-                                SimulationStatusBanner(
-                                    simulatedState = uiState.debugSimulatedState,
-                                    onExitSimulation = onExitDebugSimulation,
-                                )
-                            }
+                    .widthIn(max = 600.dp)
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+            )
 
-                            // 1. Top Header: City selector left, Settings gear right
-                            TopHeaderRow(
-                                cityName = snapshot?.cityName ?: stringResource(R.string.select_city_button),
-                                onCityClick = onOpenCitySearch,
-                                onSettingsClick = onOpenSettings,
+            Spacer(modifier = Modifier.height(6.dp))
+
+            PullToRefreshBox(
+                isRefreshing = uiState.isRefreshing,
+                onRefresh = onRefresh,
+                modifier = Modifier
+                    .weight(1f)
+                    .widthIn(max = 600.dp)
+                    .fillMaxWidth(),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(scrollState)
+                        .padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    if (uiState.isDebugSimulationActive && uiState.debugSimulatedState != null) {
+                        StatusOpaqueBanner(
+                            text = stringResource(
+                                R.string.debug_simulating_label,
+                                uiState.debugSimulatedState.displayNameEs,
+                            ),
+                            actionLabel = stringResource(R.string.menu_exit_debug),
+                            onAction = onExitDebugSimulation,
+                            modifier = Modifier.testTag("debug_simulation_banner"),
+                        )
+                    }
+
+                    if (uiState.isOfflineFallback && snapshot != null) {
+                        StatusOpaqueBanner(
+                            text = stringResource(
+                                R.string.offline_updated_at,
+                                formatTimestampClock(snapshot.updatedAtMillis),
+                            ),
+                            modifier = Modifier.testTag("offline_banner"),
+                        )
+                    }
+
+                    when {
+                        uiState.needsLocationPermission && snapshot == null -> {
+                            LocationPermissionCard(
+                                onGrantClick = {
+                                    permissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+                                },
+                                onManualCityClick = onOpenCitySearch,
+                            )
+                        }
+
+                        uiState.weatherError != null && snapshot == null -> {
+                            WeatherErrorCard(
+                                message = uiState.weatherError,
+                                onRetryClick = onRefresh,
+                                onManualCityClick = onOpenCitySearch,
+                            )
+                        }
+
+                        uiState.isLoading && snapshot == null -> {
+                            Spacer(modifier = Modifier.height(36.dp))
+                            OpaqueSkeletonCard(height = 104.dp)
+                            OpaqueSkeletonCard(height = 148.dp)
+                            OpaqueSkeletonCard(height = 176.dp)
+                        }
+
+                        snapshot != null -> {
+                            // Pantalla 1: Hero con temperatura flotante (±4dp, ciclo 4s)
+                            WeatherHeroSection(
+                                snapshot = snapshot,
+                                reduceAnimations = uiState.userReduceAnimations,
                             )
 
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            if (snapshot != null) {
-                                // 2. Central Weather Block + Quick Summary Capsule
-                                CentralWeatherBlock(
-                                    snapshot = snapshot,
-                                    isOfflineFallback = uiState.isOfflineFallback,
-                                    onOpenDetails = onOpenDetails,
-                                )
-
-                                // 3. Flexible atmospheric space
-                                Spacer(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .heightIn(min = 28.dp),
-                                )
-
-                                // 4. "IA del clima" Card
-                                WeatherAiCard(
-                                    text = uiState.aiCardText,
-                                    animationKey = uiState.aiAnimationKey,
-                                    isThinking = uiState.isAiThinking,
-                                    reduceAnimations = uiState.settings.reduceAnimations,
-                                )
-
-                                Spacer(modifier = Modifier.height(12.dp))
-
-                                // 5. Row of 3 Interactive Chips
-                                FlowRow(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                                ) {
-                                    WeatherChipType.entries.forEach { chip ->
-                                        val isSelected = uiState.selectedChip == chip
-                                        GlassSurface(
-                                            cornerRadius = 22.dp,
-                                            highlighted = isSelected,
-                                            onClick = { onChipClick(chip) },
-                                            modifier = Modifier
-                                                .minimumInteractiveComponentSize()
-                                                .testTag("weather_chip_${chip.name.lowercase()}"),
-                                        ) {
-                                            Text(
-                                                text = chip.label,
-                                                style = MaterialTheme.typography.labelLarge,
-                                                color = Color.White,
-                                                modifier = Modifier.padding(
-                                                    horizontal = 14.dp,
-                                                    vertical = 10.dp,
-                                                ),
-                                            )
-                                        }
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.height(12.dp))
-
-                                // 6. Exactly 2 Local Recommendation Cards
-                                uiState.recommendations.take(2).forEach { rec ->
-                                    RecommendationCard(
-                                        recommendation = rec,
-                                        modifier = Modifier.fillMaxWidth(),
-                                    )
-                                    Spacer(modifier = Modifier.height(10.dp))
-                                }
-
-                                Spacer(modifier = Modifier.height(6.dp))
-                            } else {
-                                EmptyOrLoadingState(
-                                    isLoading = uiState.isLoadingWeather,
-                                    needsLocationSelection = uiState.needsLocationSelection,
-                                    errorMessage = uiState.weatherErrorMessage,
-                                    onSearchCity = onOpenCitySearch,
-                                    onRetry = onRefresh,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .fillMaxWidth(),
+                            // Tarjeta 1: IA del clima (entrada escalonada)
+                            StaggeredEntrance(
+                                index = 0,
+                                delayStepMs = 120,
+                                reduceAnimations = uiState.userReduceAnimations,
+                            ) {
+                                AiSummaryCard(
+                                    summary = uiState.aiSummary,
+                                    animationKey = uiState.aiSummaryKey,
+                                    isLoading = uiState.isAiSummaryLoading,
+                                    errorMessage = uiState.aiSummaryError,
+                                    missingKeyMessage = uiState.aiMissingKeyMessage,
+                                    reduceAnimations = uiState.userReduceAnimations,
+                                    onRetry = onRetryAiSummary,
                                 )
                             }
+
+                            // Tarjeta 2: Por horas (6 columnas visibles)
+                            StaggeredEntrance(
+                                index = 1,
+                                delayStepMs = 120,
+                                reduceAnimations = uiState.userReduceAnimations,
+                            ) {
+                                HourlyForecastCard(hours = snapshot.hourlyForecast)
+                            }
+
+                            // Tarjeta 3: 10 días
+                            StaggeredEntrance(
+                                index = 2,
+                                delayStepMs = 120,
+                                reduceAnimations = uiState.userReduceAnimations,
+                            ) {
+                                DailyForecastCard(days = snapshot.dailyForecast)
+                            }
+
+                            // Pantalla 2: Detalles (7 widgets animados en rejilla 2 columnas)
+                            WeatherDetailsGrid(
+                                snapshot = snapshot,
+                                reduceAnimations = uiState.userReduceAnimations,
+                            )
                         }
                     }
-                }
 
-                // 7. Floating Bottom Capsule
-                if (snapshot != null) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .widthIn(max = 600.dp)
-                            .padding(horizontal = 20.dp)
-                            .padding(top = 4.dp, bottom = 14.dp),
-                    ) {
-                        uiState.bottomBarNotice?.let { notice ->
-                            Text(
-                                text = notice,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color.White.copy(alpha = 0.88f),
-                                modifier = Modifier
-                                    .padding(horizontal = 12.dp, vertical = 4.dp)
-                                    .testTag("bottom_bar_notice"),
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+            }
+
+            // Barra inferior fija "Pregúntale al clima" que abre el chat
+            FixedAskWeatherBar(
+                onClick = onOpenChat,
+                modifier = Modifier
+                    .widthIn(max = 600.dp)
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+        }
+    }
+
+    if (uiState.isCitySearchOpen) {
+        CitySearchDialog(
+            query = uiState.citySearchQuery,
+            results = uiState.citySearchResults,
+            isSearching = uiState.isSearchingCities,
+            onQueryChange = onCityQueryChange,
+            onSelectCity = onCitySelected,
+            onDismiss = onCloseCitySearch,
+        )
+    }
+
+    if (BuildConfig.DEBUG && isDebugDialogOpen) {
+        DebugWeatherStateDialog(
+            currentSimulated = uiState.debugSimulatedState,
+            onSelectState = { state ->
+                isDebugDialogOpen = false
+                onSelectDebugState(state)
+            },
+            onDismiss = { isDebugDialogOpen = false },
+        )
+    }
+}
+
+@Composable
+private fun TopWeatherBar(
+    cityName: String,
+    canNavigateBack: Boolean,
+    isMenuExpanded: Boolean,
+    userReduceAnimations: Boolean,
+    isDebugSimulationActive: Boolean,
+    onBackClick: () -> Unit,
+    onTitleClick: () -> Unit,
+    onMenuOpen: () -> Unit,
+    onMenuDismiss: () -> Unit,
+    onRefreshClick: () -> Unit,
+    onSearchCityClick: () -> Unit,
+    onRequestLocationClick: () -> Unit,
+    onToggleReduceAnimations: () -> Unit,
+    onOpenDebugDialog: () -> Unit,
+    onExitDebugClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.height(48.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        if (canNavigateBack) {
+            OpaqueCircleButton(
+                onClick = onBackClick,
+                size = 44.dp,
+                modifier = Modifier.testTag("top_back_button"),
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
+                    contentDescription = stringResource(R.string.back_content_description),
+                    tint = TextPrimary,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+        } else {
+            Spacer(
+                modifier = Modifier
+                    .size(44.dp)
+                    .testTag("top_back_placeholder"),
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .minimumInteractiveComponentSize()
+                .clip(RoundedCornerShape(16.dp))
+                .clickable(onClick = onTitleClick)
+                .padding(horizontal = 10.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = cityName,
+                style = MaterialTheme.typography.titleSmall,
+                color = TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+
+        Box {
+            OpaqueCircleButton(
+                onClick = onMenuOpen,
+                size = 44.dp,
+                modifier = Modifier.testTag("top_menu_button"),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.MoreVert,
+                    contentDescription = stringResource(R.string.more_options_content_description),
+                    tint = TextPrimary,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+
+            DropdownMenu(
+                expanded = isMenuExpanded,
+                onDismissRequest = onMenuDismiss,
+                containerColor = OpaqueCardColor,
+            ) {
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = stringResource(R.string.menu_refresh_weather),
+                            color = TextPrimary,
+                        )
+                    },
+                    onClick = onRefreshClick,
+                    modifier = Modifier.testTag("menu_refresh_item"),
+                )
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = stringResource(R.string.menu_search_city),
+                            color = TextPrimary,
+                        )
+                    },
+                    onClick = onSearchCityClick,
+                    modifier = Modifier.testTag("menu_search_city_item"),
+                )
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = stringResource(R.string.menu_request_location),
+                            color = TextPrimary,
+                        )
+                    },
+                    onClick = onRequestLocationClick,
+                    modifier = Modifier.testTag("menu_location_item"),
+                )
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = stringResource(R.string.menu_reduce_animations),
+                            color = TextPrimary,
+                        )
+                    },
+                    trailingIcon = if (userReduceAnimations) {
+                        {
+                            Icon(
+                                imageVector = Icons.Rounded.Check,
+                                contentDescription = null,
+                                tint = AccentBlue,
+                                modifier = Modifier.size(18.dp),
                             )
                         }
-
-                        BottomAskCapsule(
-                            value = questionInput,
-                            onValueChange = { questionInput = it },
-                            onSend = {
-                                val textToSend = questionInput.trim()
-                                if (textToSend.isNotEmpty()) {
-                                    onAskQuestion(textToSend)
-                                    questionInput = ""
-                                    keyboardController?.hide()
-                                }
+                    } else {
+                        null
+                    },
+                    onClick = onToggleReduceAnimations,
+                    modifier = Modifier.testTag("menu_reduce_animations_item"),
+                )
+                if (BuildConfig.DEBUG) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = stringResource(R.string.menu_debug_mode),
+                                color = AccentBlue,
+                            )
+                        },
+                        onClick = onOpenDebugDialog,
+                        modifier = Modifier.testTag("menu_debug_item"),
+                    )
+                    if (isDebugSimulationActive) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = stringResource(R.string.menu_exit_debug),
+                                    color = AccentBlue,
+                                )
                             },
+                            onClick = onExitDebugClick,
+                            modifier = Modifier.testTag("menu_exit_debug_item"),
                         )
                     }
                 }
             }
         }
     }
-
-    if (uiState.isCitySearchOpen) {
-        CitySearchBottomSheet(
-            query = uiState.citySearchQuery,
-            results = uiState.citySearchResults,
-            isSearching = uiState.isSearchingCities,
-            onQueryChange = onCityQueryChange,
-            onCitySelected = onCitySelected,
-            onUseCurrentLocation = {
-                if (hasLocationPermission()) {
-                    onUseAutoLocation()
-                } else {
-                    permissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
-                }
-            },
-            onDismiss = onCloseCitySearch,
-        )
-    }
 }
 
 @Composable
-private fun TopHeaderRow(
-    cityName: String,
-    onCityClick: () -> Unit,
-    onSettingsClick: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Row(
-            modifier = Modifier
-                .weight(1f, fill = false)
-                .clip(RoundedCornerShape(14.dp))
-                .clickable(onClick = onCityClick)
-                .minimumInteractiveComponentSize()
-                .padding(horizontal = 6.dp, vertical = 8.dp)
-                .testTag("city_selector_button"),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.LocationOn,
-                contentDescription = stringResource(R.string.location_pin_content_description),
-                tint = Color.White,
-                modifier = Modifier.size(20.dp),
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(
-                text = cityName,
-                style = MaterialTheme.typography.headlineMedium.copy(fontSize = 20.sp),
-                color = Color.White,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-
-        IconButton(
-            onClick = onSettingsClick,
-            modifier = Modifier
-                .minimumInteractiveComponentSize()
-                .testTag("settings_button"),
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.Settings,
-                contentDescription = stringResource(R.string.settings_content_description),
-                tint = Color.White,
-            )
-        }
-    }
-}
-
-@Composable
-private fun CentralWeatherBlock(
+private fun WeatherHeroSection(
     snapshot: WeatherSnapshot,
-    isOfflineFallback: Boolean,
-    onOpenDetails: () -> Unit,
+    reduceAnimations: Boolean,
 ) {
+    val floatOffsetDp = if (!reduceAnimations) {
+        rememberInfiniteTransition(label = "hero_temp_float").animateFloat(
+            initialValue = -4f,
+            targetValue = 4f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 2000, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "float_dp",
+        ).value
+    } else {
+        0f
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 6.dp),
+            .padding(top = 6.dp, bottom = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        Text(
+            text = snapshot.conditionLabel,
+            style = MaterialTheme.typography.titleLarge,
+            color = TextPrimary,
+            textAlign = TextAlign.Center,
+        )
+
+        Spacer(modifier = Modifier.height(2.dp))
+
         Text(
             text = "${snapshot.temperatureC.roundToInt()}°",
             style = MaterialTheme.typography.displayLarge,
-            color = Color.White,
-            modifier = Modifier.testTag("temperature_text"),
+            color = TextPrimary,
+            modifier = Modifier.offset(y = floatOffsetDp.dp),
         )
 
         Text(
-            text = snapshot.conditionLabel,
-            style = MaterialTheme.typography.headlineMedium.copy(
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Normal,
+            text = stringResource(
+                R.string.feels_like_format,
+                snapshot.apparentTemperatureC.roundToInt(),
             ),
-            color = Color.White.copy(alpha = 0.94f),
-            modifier = Modifier.testTag("condition_label_text"),
+            style = MaterialTheme.typography.bodyLarge,
+            color = TextPrimary,
         )
 
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(2.dp))
 
         Text(
             text = stringResource(
@@ -412,238 +587,366 @@ private fun CentralWeatherBlock(
                 snapshot.tempMaxC.roundToInt(),
                 snapshot.tempMinC.roundToInt(),
             ),
-            style = MaterialTheme.typography.bodyLarge,
-            color = Color.White.copy(alpha = 0.82f),
-            modifier = Modifier.testTag("max_min_text"),
+            style = MaterialTheme.typography.bodyMedium,
+            color = TextSecondary,
         )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // Quick Summary Capsule (Humidity, Wind, UV -> navigates to WeatherDetailsScreen)
-        GlassSurface(
-            cornerRadius = 24.dp,
-            onClick = onOpenDetails,
-            modifier = Modifier
-                .minimumInteractiveComponentSize()
-                .testTag("quick_summary_capsule"),
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = stringResource(
-                        R.string.quick_summary_format,
-                        snapshot.humidityPercent,
-                        snapshot.windSpeedKmh.roundToInt(),
-                        snapshot.uvIndexMax.roundToInt(),
-                    ),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = Color.White.copy(alpha = 0.94f),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                    contentDescription = stringResource(R.string.quick_summary_cd),
-                    tint = Color.White.copy(alpha = 0.85f),
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-        }
-
-        val activeProvider = WeatherProviderOption.fromId(snapshot.providerId)
-        if (activeProvider != WeatherProviderOption.OPEN_METEO) {
-            Spacer(modifier = Modifier.height(8.dp))
-            GlassSurface(
-                cornerRadius = 12.dp,
-                modifier = Modifier.testTag("provider_source_badge"),
-            ) {
-                Text(
-                    text = stringResource(R.string.provider_source_badge, activeProvider.shortLabel),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.9f),
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                )
-            }
-        }
-
-        if (isOfflineFallback) {
-            Spacer(modifier = Modifier.height(8.dp))
-            val minutesAgo = ((System.currentTimeMillis() - snapshot.updatedAtMillis) / 60_000L)
-                .coerceAtLeast(0L)
-                .toInt()
-            val label = if (minutesAgo == 0) {
-                stringResource(R.string.updated_just_now)
-            } else {
-                stringResource(R.string.updated_minutes_ago, minutesAgo)
-            }
-            GlassSurface(cornerRadius = 12.dp) {
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.9f),
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                )
-            }
-        }
     }
 }
 
 @Composable
-private fun WeatherAiCard(
-    text: String,
+private fun AiSummaryCard(
+    summary: String,
     animationKey: Int,
-    isThinking: Boolean,
+    isLoading: Boolean,
+    errorMessage: String?,
+    missingKeyMessage: String?,
     reduceAnimations: Boolean,
+    onRetry: () -> Unit,
 ) {
-    GlassSurface(
+    OpaqueCard(
+        shape = RoundedCornerShape(28.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .testTag("weather_ai_card"),
-        cornerRadius = 15.dp,
+            .testTag("ai_summary_card"),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                PulsingSparkleIcon(
-                    reduceAnimations = reduceAnimations,
-                    contentDescription = stringResource(R.string.ai_sparkle_content_description),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
+                SparkleVectorIcon(size = 14.dp, tint = LightShapeViolet)
+                Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = stringResource(R.string.weather_ai_title),
-                    style = MaterialTheme.typography.titleSmall,
-                    color = Color.White,
-                )
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            if (isThinking) {
-                ThreeDotsThinkingIndicator(reduceAnimations = reduceAnimations)
-            } else {
-                TypewriterText(
-                    fullText = text,
-                    animationKey = animationKey,
-                    reduceAnimations = reduceAnimations,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun RecommendationCard(
-    recommendation: LocalRecommendation,
-    modifier: Modifier = Modifier,
-) {
-    GlassSurface(
-        modifier = modifier.testTag("recommendation_card_${recommendation.id}"),
-        cornerRadius = 15.dp,
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            RecommendationCircularIcon(iconType = recommendation.iconType)
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = recommendation.title,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = Color.White,
-                )
-                Text(
-                    text = recommendation.subtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.85f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    color = TextSecondary,
                 )
+            }
+
+            when {
+                isLoading && summary.isBlank() -> {
+                    JumpingThreeDots(modifier = Modifier.padding(vertical = 4.dp))
+                }
+
+                missingKeyMessage != null -> {
+                    Text(
+                        text = missingKeyMessage,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextSecondary,
+                    )
+                }
+
+                errorMessage != null -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            text = errorMessage,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextPrimary,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(
+                            onClick = onRetry,
+                            modifier = Modifier.testTag("retry_ai_summary_button"),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.retry_button),
+                                color = AccentBlue,
+                            )
+                        }
+                    }
+                }
+
+                else -> {
+                    TypewriterText(
+                        fullText = summary,
+                        animationKey = animationKey,
+                        reduceAnimations = reduceAnimations,
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun BottomAskCapsule(
-    value: String,
-    onValueChange: (String) -> Unit,
-    onSend: () -> Unit,
-) {
-    GlassSurface(
-        cornerRadius = 28.dp,
+private fun HourlyForecastCard(hours: List<HourlyForecastItem>) {
+    OpaqueCard(
+        shape = RoundedCornerShape(28.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .testTag("bottom_ask_capsule"),
+            .testTag("hourly_forecast_card"),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.hourly_forecast_title),
+                style = MaterialTheme.typography.titleSmall,
+                color = TextSecondary,
+            )
+
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val columnWidth = (maxWidth / 6f).coerceAtLeast(48.dp)
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Start,
+                ) {
+                    itemsIndexed(hours) { index, item ->
+                        Column(
+                            modifier = Modifier.width(columnWidth),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                text = if (index == 0) {
+                                    stringResource(R.string.hourly_now_label)
+                                } else {
+                                    formatHourlyClockLabel(item.timeIso)
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary,
+                                maxLines = 1,
+                            )
+                            WeatherIcon(
+                                weatherCode = item.weatherCode,
+                                isDay = item.isDay,
+                                size = 24.dp,
+                            )
+                            Text(
+                                text = "${item.precipitationProbability}%",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = AccentBlue,
+                            )
+                            Text(
+                                text = "${item.temperatureC.roundToInt()}°",
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    fontWeight = FontWeight.Medium,
+                                ),
+                                color = TextPrimary,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DailyForecastCard(days: List<DailyForecastItem>) {
+    val shownDays = days.take(10)
+    OpaqueCard(
+        shape = RoundedCornerShape(28.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("daily_forecast_card"),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.ten_days_forecast_title),
+                style = MaterialTheme.typography.titleSmall,
+                color = TextSecondary,
+            )
+
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val columnWidth = (maxWidth / 6f).coerceAtLeast(48.dp)
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Start,
+                ) {
+                    itemsIndexed(shownDays) { index, item ->
+                        Column(
+                            modifier = Modifier.width(columnWidth),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Text(
+                                text = if (index == 0) {
+                                    stringResource(R.string.daily_today_label)
+                                } else {
+                                    formatSpanishShortDay(item.dateIso)
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary,
+                                maxLines = 1,
+                            )
+                            WeatherIcon(
+                                weatherCode = item.weatherCode,
+                                isDay = true,
+                                size = 24.dp,
+                            )
+                            Text(
+                                text = "${item.precipitationProbabilityMax}%",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = AccentBlue,
+                            )
+                            Text(
+                                text = "${item.tempMaxC.roundToInt()}°",
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    fontWeight = FontWeight.Medium,
+                                ),
+                                color = TextPrimary,
+                            )
+                            Text(
+                                text = "${item.tempMinC.roundToInt()}°",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FixedAskWeatherBar(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    OpaqueCard(
+        shape = RoundedCornerShape(28.dp),
+        onClick = onClick,
+        modifier = modifier
+            .height(54.dp)
+            .testTag("ask_weather_bar"),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(start = 18.dp, end = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SparkleVectorIcon(size = 16.dp, tint = LightShapeViolet)
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = stringResource(R.string.ask_weather_placeholder),
+                style = MaterialTheme.typography.bodyLarge,
+                color = TextSecondary,
+                modifier = Modifier.weight(1f),
+            )
+            Box(
+                modifier = Modifier
+                    .minimumInteractiveComponentSize()
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(AccentBlue),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.ArrowUpward,
+                    contentDescription = stringResource(R.string.send_question_content_description),
+                    tint = OpaqueCardColor,
+                    modifier = Modifier.size(19.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatusOpaqueBanner(
+    text: String,
+    modifier: Modifier = Modifier,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
+) {
+    OpaqueCard(
+        shape = RoundedCornerShape(20.dp),
+        modifier = modifier.fillMaxWidth(),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Icon(
-                imageVector = Icons.Rounded.AutoAwesome,
-                contentDescription = null,
-                tint = Color.White.copy(alpha = 0.9f),
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-
-            Box(
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodySmall,
+                color = TextPrimary,
                 modifier = Modifier.weight(1f),
-                contentAlignment = Alignment.CenterStart,
-            ) {
-                if (value.isEmpty()) {
-                    Text(
-                        text = stringResource(R.string.ask_weather_placeholder),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White.copy(alpha = 0.72f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                BasicTextField(
-                    value = value,
-                    onValueChange = onValueChange,
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = Color.White),
-                    cursorBrush = SolidColor(Color.White),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions = KeyboardActions(onSend = { onSend() }),
+            )
+            if (actionLabel != null && onAction != null) {
+                Text(
+                    text = actionLabel,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = AccentBlue,
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("ask_weather_input"),
+                        .clickable(onClick = onAction)
+                        .padding(start = 12.dp, top = 4.dp, bottom = 4.dp),
                 )
             }
+        }
+    }
+}
 
-            IconButton(
-                onClick = onSend,
-                modifier = Modifier
-                    .minimumInteractiveComponentSize()
-                    .testTag("send_question_button"),
-            ) {
-                Box(
+@Composable
+private fun LocationPermissionCard(
+    onGrantClick: () -> Unit,
+    onManualCityClick: () -> Unit,
+) {
+    OpaqueCard(
+        shape = RoundedCornerShape(28.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 24.dp)
+            .testTag("location_permission_card"),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.permission_title),
+                style = MaterialTheme.typography.titleMedium,
+                color = TextPrimary,
+            )
+            Text(
+                text = stringResource(R.string.permission_explanation),
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextSecondary,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = onGrantClick,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = AccentBlue,
+                        contentColor = OpaqueCardColor,
+                    ),
                     modifier = Modifier
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.24f)),
-                    contentAlignment = Alignment.Center,
+                        .minimumInteractiveComponentSize()
+                        .testTag("grant_location_button"),
                 ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Rounded.Send,
-                        contentDescription = stringResource(R.string.send_question_content_description),
-                        tint = Color.White,
-                        modifier = Modifier.size(18.dp),
+                    Text(text = stringResource(R.string.permission_grant_button))
+                }
+                OutlinedButton(
+                    onClick = onManualCityClick,
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .testTag("manual_city_button"),
+                ) {
+                    Text(
+                        text = stringResource(R.string.search_city_button),
+                        color = TextPrimary,
                     )
                 }
             }
@@ -652,65 +955,273 @@ private fun BottomAskCapsule(
 }
 
 @Composable
-private fun EmptyOrLoadingState(
-    isLoading: Boolean,
-    needsLocationSelection: Boolean,
-    errorMessage: String?,
-    onSearchCity: () -> Unit,
-    onRetry: () -> Unit,
-    modifier: Modifier = Modifier,
+private fun WeatherErrorCard(
+    message: String,
+    onRetryClick: () -> Unit,
+    onManualCityClick: () -> Unit,
 ) {
-    Column(
-        modifier = modifier.padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+    OpaqueCard(
+        shape = RoundedCornerShape(28.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 24.dp)
+            .testTag("weather_error_card"),
     ) {
-        if (isLoading) {
-            CircularProgressIndicator(color = Color.White)
-            Spacer(modifier = Modifier.height(14.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             Text(
-                text = stringResource(R.string.loading_weather),
+                text = message.ifBlank { stringResource(R.string.weather_error_generic) },
                 style = MaterialTheme.typography.bodyLarge,
-                color = Color.White,
+                color = TextPrimary,
             )
-        } else if (needsLocationSelection) {
-            Text(
-                text = stringResource(R.string.select_city_prompt),
-                style = MaterialTheme.typography.titleMedium,
-                color = Color.White,
-            )
-            Spacer(modifier = Modifier.height(14.dp))
-            Button(
-                onClick = onSearchCity,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color.White,
-                    contentColor = Color(0xFF1B2432),
-                ),
-                modifier = Modifier
-                    .heightIn(min = 48.dp)
-                    .testTag("empty_select_city_button"),
-            ) {
-                Text(stringResource(R.string.select_city_button))
-            }
-        } else if (errorMessage != null) {
-            Text(
-                text = errorMessage,
-                style = MaterialTheme.typography.bodyLarge,
-                color = Color.White,
-            )
-            Spacer(modifier = Modifier.height(14.dp))
-            Button(
-                onClick = onRetry,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color.White,
-                    contentColor = Color(0xFF1B2432),
-                ),
-                modifier = Modifier
-                    .heightIn(min = 48.dp)
-                    .testTag("retry_weather_button"),
-            ) {
-                Text(stringResource(R.string.retry_button))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = onRetryClick,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = AccentBlue,
+                        contentColor = OpaqueCardColor,
+                    ),
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .testTag("retry_weather_button"),
+                ) {
+                    Text(text = stringResource(R.string.retry_button))
+                }
+                OutlinedButton(
+                    onClick = onManualCityClick,
+                    modifier = Modifier.minimumInteractiveComponentSize(),
+                ) {
+                    Text(
+                        text = stringResource(R.string.search_city_button),
+                        color = TextPrimary,
+                    )
+                }
             }
         }
     }
+}
+
+@Composable
+private fun CitySearchDialog(
+    query: String,
+    results: List<CitySearchResult>,
+    isSearching: Boolean,
+    onQueryChange: (String) -> Unit,
+    onSelectCity: (CitySearchResult) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = OpaqueCardColor,
+        title = {
+            Text(
+                text = stringResource(R.string.search_city_button),
+                color = TextPrimary,
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    placeholder = {
+                        Text(
+                            text = stringResource(R.string.search_city_hint),
+                            color = TextSecondary,
+                        )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Rounded.Search,
+                            contentDescription = null,
+                            tint = TextSecondary,
+                        )
+                    },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary,
+                        focusedBorderColor = AccentBlue,
+                        unfocusedBorderColor = TextSecondary.copy(alpha = 0.4f),
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("city_search_input"),
+                )
+
+                when {
+                    isSearching -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator(
+                                color = AccentBlue,
+                                modifier = Modifier.size(24.dp),
+                            )
+                        }
+                    }
+
+                    query.trim().length >= 2 && results.isEmpty() -> {
+                        Text(
+                            text = stringResource(R.string.search_city_empty),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary,
+                        )
+                    }
+
+                    else -> {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 220.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            items(results, key = { it.id }) { city ->
+                                val subtitle = listOfNotNull(city.admin1, city.country)
+                                    .filter { it.isNotBlank() }
+                                    .joinToString(", ")
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .minimumInteractiveComponentSize()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .clickable { onSelectCity(city) }
+                                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                                ) {
+                                    Text(
+                                        text = city.name,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = TextPrimary,
+                                    )
+                                    if (subtitle.isNotBlank()) {
+                                        Text(
+                                            text = subtitle,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = TextSecondary,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(
+                    text = stringResource(R.string.cancel_button),
+                    color = AccentBlue,
+                )
+            }
+        },
+    )
+}
+
+@Composable
+private fun DebugWeatherStateDialog(
+    currentSimulated: WeatherVisualState?,
+    onSelectState: (WeatherVisualState?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = OpaqueCardColor,
+        title = {
+            Text(
+                text = stringResource(R.string.debug_dialog_title),
+                color = TextPrimary,
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .minimumInteractiveComponentSize()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { onSelectState(null) }
+                        .padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(
+                        selected = currentSimulated == null,
+                        onClick = { onSelectState(null) },
+                        colors = RadioButtonDefaults.colors(selectedColor = AccentBlue),
+                    )
+                    Text(
+                        text = stringResource(R.string.debug_real_weather_option),
+                        color = TextPrimary,
+                    )
+                }
+
+                WeatherVisualState.entries.forEach { state ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .minimumInteractiveComponentSize()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { onSelectState(state) }
+                            .padding(horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(
+                            selected = currentSimulated == state,
+                            onClick = { onSelectState(state) },
+                            colors = RadioButtonDefaults.colors(selectedColor = AccentBlue),
+                        )
+                        Text(
+                            text = state.displayNameEs,
+                            color = TextPrimary,
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(text = stringResource(R.string.back_content_description), color = TextPrimary)
+            }
+        },
+    )
+}
+
+private fun formatHourlyClockLabel(timeIso: String): String {
+    val hour24 = timeIso.substringAfter("T", "").take(2).toIntOrNull() ?: return "--"
+    return when {
+        hour24 == 0 -> "12 AM"
+        hour24 < 12 -> "$hour24 AM"
+        hour24 == 12 -> "12 PM"
+        else -> "${hour24 - 12} PM"
+    }
+}
+
+private fun formatSpanishShortDay(dateIso: String): String {
+    return runCatching {
+        val parser = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val parsed = parser.parse(dateIso) ?: return@runCatching dateIso
+        val cal = Calendar.getInstance().apply { time = parsed }
+        when (cal.get(Calendar.DAY_OF_WEEK)) {
+            Calendar.SUNDAY -> "Dom"
+            Calendar.MONDAY -> "Lun"
+            Calendar.TUESDAY -> "Mar"
+            Calendar.WEDNESDAY -> "Mié"
+            Calendar.THURSDAY -> "Jue"
+            Calendar.FRIDAY -> "Vie"
+            Calendar.SATURDAY -> "Sáb"
+            else -> dateIso
+        }
+    }.getOrDefault(dateIso)
+}
+
+private fun formatTimestampClock(millis: Long): String {
+    val formatter = SimpleDateFormat("HH:mm", Locale("es", "MX"))
+    return formatter.format(Date(millis))
 }

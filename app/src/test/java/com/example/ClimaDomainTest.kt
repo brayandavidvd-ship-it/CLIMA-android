@@ -1,131 +1,139 @@
 package com.example
 
-import com.example.data.local.ClimaPreferencesDataStore
-import com.example.data.local.KeystoreCryptoManager
+import com.example.data.remote.GeminiApi
+import com.example.data.remote.GeminiCandidate
+import com.example.data.remote.GeminiContent
+import com.example.data.remote.GeminiGenerateContentRequest
+import com.example.data.remote.GeminiGenerateContentResponse
+import com.example.data.remote.GeminiPart
 import com.example.data.remote.NetworkModule
-import com.example.data.repository.GeminiWeatherRepository
-import com.example.data.repository.OpenWeatherDemoDataSource
-import com.example.domain.LocalRecommendationsEngine
+import com.example.data.repository.AiOutcome
+import com.example.data.repository.GeminiAiRepository
 import com.example.model.MockWeatherFactory
-import com.example.model.WeatherChipType
-import com.example.model.WeatherProviderOption
 import com.example.model.WeatherVisualState
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
-import androidx.test.core.app.ApplicationProvider
-import android.content.Context
 
-@RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36])
 class ClimaDomainTest {
 
+    private class FakeGeminiApi(
+        private val jsonPayload: String,
+    ) : GeminiApi {
+        var lastRequest: GeminiGenerateContentRequest? = null
+        override suspend fun generateContent(
+            apiKey: String,
+            request: GeminiGenerateContentRequest,
+        ): GeminiGenerateContentResponse {
+            lastRequest = request
+            return GeminiGenerateContentResponse(
+                candidates = listOf(
+                    GeminiCandidate(
+                        content = GeminiContent(
+                            role = "model",
+                            parts = listOf(GeminiPart(text = jsonPayload)),
+                        ),
+                    ),
+                ),
+            )
+        }
+    }
+
     @Test
-    fun wmoCodeMapping_coversAllNineStatesAndUnknownFallback() {
+    fun wmoCodeMapping_coversAllSevenVisualStates() {
         assertEquals(WeatherVisualState.SUNNY, WeatherVisualState.fromWmoCode(0, isDay = true))
-        assertEquals(WeatherVisualState.CLEAR_NIGHT, WeatherVisualState.fromWmoCode(0, isDay = false))
-        assertEquals(WeatherVisualState.PARTLY_CLOUDY, WeatherVisualState.fromWmoCode(1, isDay = true))
-        assertEquals(WeatherVisualState.PARTLY_CLOUDY, WeatherVisualState.fromWmoCode(2, isDay = false))
+        assertEquals(WeatherVisualState.NIGHT, WeatherVisualState.fromWmoCode(0, isDay = false))
         assertEquals(WeatherVisualState.CLOUDY, WeatherVisualState.fromWmoCode(3, isDay = true))
         assertEquals(WeatherVisualState.FOG, WeatherVisualState.fromWmoCode(45, isDay = true))
-        assertEquals(WeatherVisualState.FOG, WeatherVisualState.fromWmoCode(48, isDay = false))
-        assertEquals(WeatherVisualState.DRIZZLE, WeatherVisualState.fromWmoCode(53, isDay = true))
         assertEquals(WeatherVisualState.RAIN, WeatherVisualState.fromWmoCode(63, isDay = true))
-        assertEquals(WeatherVisualState.RAIN, WeatherVisualState.fromWmoCode(81, isDay = true))
         assertEquals(WeatherVisualState.SNOW, WeatherVisualState.fromWmoCode(73, isDay = true))
         assertEquals(WeatherVisualState.STORM, WeatherVisualState.fromWmoCode(95, isDay = true))
         assertEquals(WeatherVisualState.CLOUDY, WeatherVisualState.fromWmoCode(999, isDay = true))
     }
 
     @Test
-    fun recommendationsEngine_respectsPriorityMaxTwoAndSubtitleLimit() {
-        WeatherVisualState.entries.forEach { state ->
-            val snapshot = MockWeatherFactory.createForState(state)
-            val recs = LocalRecommendationsEngine.evaluate(snapshot)
-            assertTrue("Expected <= 2 recommendations for $state", recs.size <= 2)
-            recs.forEach { rec ->
-                assertTrue(
-                    "Subtitle '${rec.subtitle}' exceeds 35 chars (${rec.subtitle.length})",
-                    rec.subtitle.length <= 35,
-                )
-            }
-        }
+    fun weatherSnapshot_isLocalNight_usesSunriseAndSunsetClock() {
+        val daySnapshot = MockWeatherFactory.createForState(WeatherVisualState.SUNNY)
+        assertFalse(daySnapshot.isLocalNight)
 
-        val sunnyHot = MockWeatherFactory.createForState(WeatherVisualState.SUNNY)
-        val sunnyRecs = LocalRecommendationsEngine.evaluate(sunnyHot)
-        assertEquals(listOf("Protector solar", "Hidrátate"), sunnyRecs.map { it.title })
+        val nightSnapshot = MockWeatherFactory.createForState(WeatherVisualState.NIGHT)
+        assertTrue(nightSnapshot.isLocalNight)
+        assertEquals(WeatherVisualState.NIGHT, nightSnapshot.visualState)
 
-        val storm = MockWeatherFactory.createForState(WeatherVisualState.STORM)
-        val stormRecs = LocalRecommendationsEngine.evaluate(storm)
-        assertEquals(listOf("Lleva paraguas", "Mejor quédate bajo techo"), stormRecs.map { it.title })
-
-        val clearNight = MockWeatherFactory.createForState(WeatherVisualState.CLEAR_NIGHT)
-        val nightRecs = LocalRecommendationsEngine.evaluate(clearNight)
-        assertEquals(listOf("Se ven las estrellas"), nightRecs.map { it.title })
+        val afterSunset = daySnapshot.copy(localTimeIso = "2026-11-19T18:30")
+        assertTrue(afterSunset.isLocalNight)
+        assertEquals(WeatherVisualState.NIGHT, afterSunset.visualState)
     }
 
     @Test
-    fun mockWeatherFactory_generatesAllNineStatesAndChipFallbacks() {
-        assertEquals(9, WeatherVisualState.entries.size)
+    fun mockWeatherFactory_generatesSevenStatesWith12HoursAnd10Days() {
+        assertEquals(7, WeatherVisualState.entries.size)
         WeatherVisualState.entries.forEach { state ->
             val snapshot = MockWeatherFactory.createForState(state)
             assertEquals(state, snapshot.visualState)
+            assertEquals(12, snapshot.hourlyForecast.size)
+            assertEquals(10, snapshot.dailyForecast.size)
             assertTrue(snapshot.pressureHpa > 900.0)
-            assertTrue(snapshot.hourlyForecast.isNotEmpty())
-            assertTrue(snapshot.dailyForecast.isNotEmpty())
-            val summary = MockWeatherFactory.simulatedAiSummary(snapshot)
-            assertTrue(summary.isNotBlank())
-            WeatherChipType.entries.forEach { chip ->
-                val chipAnswer = LocalRecommendationsEngine.buildFallbackChipAnswer(chip, snapshot)
-                assertTrue(chipAnswer.isNotBlank())
-            }
         }
     }
 
     @Test
-    fun weatherProviders_andDemoDataSource_provideExtendedForecasts() = runTest {
-        assertEquals(2, WeatherProviderOption.entries.size)
-        val demoSource = OpenWeatherDemoDataSource()
-        val snapshot = demoSource.fetchCurrentWeather(19.43, -99.13, "Ciudad de México")
-        assertEquals(WeatherProviderOption.OPEN_WEATHER_DEMO.id, snapshot.providerId)
-        assertTrue(snapshot.hourlyForecast.size >= 12)
-        assertTrue(snapshot.dailyForecast.size >= 3)
-        val cities = demoSource.searchCities("Mont")
-        assertTrue(cities.any { it.name.contains("Monterrey") })
-    }
+    fun geminiAiRepository_returnsMissingApiKey_whenPlaceholderOrBlank() = runTest {
+        val storm = MockWeatherFactory.createForState(WeatherVisualState.STORM)
+        val fakeApi = FakeGeminiApi("""{"answer":"Llueve fuerte.","includeRainBars":true}""")
 
-    @Test
-    fun geminiPrompt_usesSymbolsAndSynchronizedDeviceTime() {
-        val snapshot = MockWeatherFactory.createForState(WeatherVisualState.RAIN).let {
-            it.copy(hourlyForecast = it.hourlyForecast.reversed(), dailyForecast = it.dailyForecast.reversed())
-        }
-        val repo = GeminiWeatherRepository(
-            geminiApi = NetworkModule.geminiApi,
-            prefs = ClimaPreferencesDataStore(
-                context = ApplicationProvider.getApplicationContext<Context>(),
-                moshi = NetworkModule.moshi,
-                cryptoManager = KeystoreCryptoManager(),
-            ),
+        val placeholderRepo = GeminiAiRepository(
+            geminiApi = fakeApi,
+            moshi = NetworkModule.moshi,
+            apiKeyProvider = { GeminiAiRepository.PLACEHOLDER_KEY },
         )
-        val prompt = repo.buildWeatherContextPrompt(snapshot)
-        assertTrue(prompt.contains("Hora local exacta del dispositivo:"))
-        assertTrue(prompt.contains("Pronóstico por horas (ordenado cronológicamente):"))
-        assertTrue(prompt.contains("Pronóstico diario (ordenado por fecha):"))
-        assertTrue(prompt.contains("%"))
-        assertTrue(prompt.contains("°"))
-        assertFalse(prompt.lowercase().contains("por ciento"))
+        assertTrue(placeholderRepo.generateSummary(storm) is AiOutcome.MissingApiKey)
 
-        val idx15 = prompt.indexOf("15:00")
-        val idx17 = prompt.indexOf("17:00")
-        val idx20 = prompt.indexOf("20:00")
-        assertTrue(idx15 in 0 until idx17 && idx17 < idx20)
+        val blankRepo = GeminiAiRepository(
+            geminiApi = fakeApi,
+            moshi = NetworkModule.moshi,
+            apiKeyProvider = { "   " },
+        )
+        assertTrue(blankRepo.askQuestion("¿Llevo paraguas?", storm) is AiOutcome.MissingApiKey)
+    }
 
-        val cleaned = repo.sanitizePlainText("**Sí**, a las 5 habrá 85 por ciento de lluvia y 16 grados.")
-        assertEquals("Sí, a las 5 habrá 85% de lluvia y 16°.", cleaned)
+    @Test
+    fun geminiAiRepository_parsesStructuredJsonAndRespectsRainBarsFlag() = runTest {
+        val storm = MockWeatherFactory.createForState(WeatherVisualState.STORM)
+        val rainApi = FakeGeminiApi("""{"answer":"**Sí**, llévalo por tormentas.","includeRainBars":true}""")
+        val repoWithRain = GeminiAiRepository(
+            geminiApi = rainApi,
+            moshi = NetworkModule.moshi,
+            apiKeyProvider = { "test-valid-key" },
+        )
+
+        val umbrellaOutcome = repoWithRain.askQuestion("¿Llevo paraguas?", storm) as AiOutcome.Success
+        assertEquals("Sí, llévalo por tormentas.", umbrellaOutcome.reply.text)
+        assertEquals(4, umbrellaOutcome.reply.rainBars.size)
+        assertTrue(
+            rainApi.lastRequest?.contents?.firstOrNull()?.parts?.firstOrNull()?.text
+                ?.contains(storm.cityName) == true,
+        )
+
+        val summaryOutcome = repoWithRain.generateSummary(storm) as AiOutcome.Success
+        assertTrue(summaryOutcome.reply.rainBars.isEmpty())
+    }
+
+    @Test
+    fun geminiAiRepository_buildWeatherContextAndSanitizePlainText() {
+        val storm = MockWeatherFactory.createForState(WeatherVisualState.STORM)
+        val repo = GeminiAiRepository(
+            geminiApi = FakeGeminiApi("{}"),
+            moshi = NetworkModule.moshi,
+            apiKeyProvider = { "test-key" },
+        )
+
+        val context = repo.buildWeatherContext(storm)
+        assertTrue(context.contains("Ciudad: ${storm.cityName}"))
+        assertTrue(context.contains("Próximas horas:"))
+        assertTrue(context.contains("Próximos días:"))
+        assertEquals("Clima despejado hoy", repo.sanitizePlainText("  **Clima** __despejado__ `hoy`  "))
     }
 }

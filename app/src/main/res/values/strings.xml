@@ -1,77 +1,67 @@
 <resources>
     <string name="app_name">Clima</string>
 
-    <!-- Main Screen -->
-    <string name="settings_content_description">Abrir ajustes</string>
-    <string name="location_pin_content_description">Cambiar ciudad</string>
-    <string name="your_location_fallback">Tu ubicación</string>
-    <string name="max_min_format">Máx %1$d° · Mín %2$d°</string>
-    <string name="quick_summary_format">Humedad %1$d%% · Viento %2$d km/h · UV %3$d</string>
-    <string name="quick_summary_cd">Ver detalles completos del clima</string>
-    <string name="provider_source_badge">Fuente: %1$s</string>
-    <string name="updated_minutes_ago">Actualizado hace %1$d min</string>
-    <string name="updated_just_now">Actualizado hace un momento</string>
-    <string name="weather_ai_title">IA del clima</string>
-    <string name="ai_sparkle_content_description">Asistente de clima IA</string>
-    <string name="chip_what_to_wear">¿Qué me pongo?</string>
-    <string name="chip_umbrella">¿Llevo paraguas?</string>
-    <string name="chip_today_plan">Plan para hoy</string>
-    <string name="ask_weather_placeholder">Pregunta algo sobre el clima</string>
-    <string name="send_question_content_description">Enviar pregunta</string>
-    <string name="enable_ai_in_settings">Activa la IA en Ajustes</string>
-    <string name="configure_api_key_in_settings">Agrega tu clave de Gemini en Ajustes</string>
-    <string name="offline_ai_unavailable">Sin conexión; mostrando consejo local</string>
-    <string name="loading_weather">Consultando el clima…</string>
-    <string name="select_city_prompt">Elige tu ciudad para ver el clima</string>
-    <string name="select_city_button">Buscar ciudad</string>
-    <string name="retry_button">Reintentar</string>
-
-    <!-- Weather Details Screen -->
-    <string name="details_wind_title">Viento</string>
-    <string name="details_humidity_title">Humedad relativa</string>
-    <string name="details_uv_title">Índice UV máximo</string>
-    <string name="details_pressure_title">Presión atmosférica</string>
-    <string name="details_rain_prob_title">Probabilidad de lluvia</string>
-    <string name="details_solar_cycle_title">Ciclo solar</string>
-    <string name="details_sunrise_label">Amanecer</string>
-    <string name="details_sunset_label">Atardecer</string>
-
-    <!-- City Search -->
-    <string name="search_city_title">Buscar ciudad</string>
-    <string name="search_city_hint">Escribe el nombre de tu ciudad</string>
-    <string name="use_current_location">Usar ubicación actual</string>
-    <string name="no_cities_found">No se encontraron ciudades</string>
-    <string name="close_content_description">Cerrar</string>
-
-    <!-- Settings Screen -->
-    <string name="settings_title">Ajustes</string>
+    <!-- Navegación y Barra Superior -->
     <string name="back_content_description">Volver</string>
-    <string name="settings_city_section">Ciudad</string>
-    <string name="settings_change_city">Cambiar ciudad</string>
-    <string name="settings_auto_location">Usar ubicación automática</string>
-    <string name="settings_provider_section">Proveedor de Clima</string>
-    <string name="settings_provider_label">Fuente de datos</string>
-    <string name="settings_provider_extensible_note">Alterna entre Open-Meteo (real) y OpenWeather (demo) mediante WeatherDataSource.</string>
-    <string name="settings_ai_section">IA en la nube (Gemini)</string>
-    <string name="settings_ai_enable">Activar asistente de IA</string>
-    <string name="settings_ai_privacy_notice">Para responder, el clima y el nombre de tu ciudad se envían a la nube de Google.</string>
-    <string name="settings_api_key_label">Clave de API de Gemini</string>
-    <string name="settings_api_key_hint">Pega tu clave de Google AI Studio</string>
-    <string name="settings_create_api_key_link">✨ Crear API gratis en Google AI Studio</string>
-    <string name="settings_toggle_key_visibility">Mostrar u ocultar clave</string>
-    <string name="settings_model_label">Modelo</string>
-    <string name="settings_test_connection">Probar conexión</string>
-    <string name="settings_testing_connection">Probando conexión…</string>
-    <string name="settings_accessibility_section">Accesibilidad</string>
-    <string name="settings_reduce_animations">Reducir animaciones</string>
-    <string name="settings_reduce_animations_desc">Mantiene el fondo estático y desactiva destellos.</string>
-    <string name="settings_info_section">Información</string>
-    <string name="settings_app_version">Versión</string>
+    <string name="more_options_content_description">Opciones</string>
+    <string name="your_location_fallback">Tu ubicación</string>
+    <string name="menu_refresh_weather">Actualizar clima</string>
+    <string name="menu_search_city">Buscar ciudad</string>
+    <string name="menu_request_location">Usar ubicación actual</string>
+    <string name="menu_reduce_animations">Reducir animaciones</string>
+    <string name="menu_debug_mode">Modo de prueba (Debug)</string>
+    <string name="menu_exit_debug">Salir del modo de prueba</string>
+    <string name="menu_clear_chat">Limpiar chat</string>
 
-    <!-- Debug Test Mode -->
-    <string name="debug_test_mode_section">Modo de prueba (Debug)</string>
-    <string name="debug_test_mode_state_label">Simular estado del clima</string>
-    <string name="debug_test_mode_real_option">Clima real (sin simular)</string>
-    <string name="debug_simulating_banner">Simulando: %1$s</string>
-    <string name="debug_exit_simulation">Volver al clima real</string>
+    <!-- Pantalla 1: Principal -->
+    <string name="feels_like_format">Se siente como %1$d°</string>
+    <string name="max_min_format">Máx %1$d° · Mín %2$d°</string>
+    <string name="weather_ai_title">IA del clima</string>
+    <string name="ai_sparkle_content_description">IA del clima</string>
+    <string name="hourly_forecast_title">Por horas</string>
+    <string name="hourly_now_label">Ahora</string>
+    <string name="ten_days_forecast_title">10 días</string>
+    <string name="daily_today_label">Hoy</string>
+
+    <!-- Pantalla 2: Detalles -->
+    <string name="details_rain_today_title">Lluvia del día</string>
+    <string name="details_wind_title">Viento</string>
+    <string name="details_sunrise_sunset_title">Amanecer y atardecer</string>
+    <string name="details_uv_title">Índice UV</string>
+    <string name="details_visibility_title">Visibilidad</string>
+    <string name="details_humidity_title">Humedad</string>
+    <string name="details_dew_point_format">Punto de rocío %1$d°</string>
+    <string name="details_pressure_title">Presión</string>
+    <string name="details_pressure_unit">hPa</string>
+
+    <!-- Barra inferior y Pantalla 3: Chat -->
+    <string name="ask_weather_placeholder">Pregúntale al clima</string>
+    <string name="send_question_content_description">Enviar</string>
+    <string name="chat_title">Asistente del clima</string>
+    <string name="chat_empty_hint">Pregunta sobre el clima actual, qué ropa usar o si va a llover.</string>
+    <string name="chip_umbrella">¿Llevo paraguas?</string>
+    <string name="chip_what_to_wear">¿Qué me pongo?</string>
+    <string name="chip_rain_stop">¿A qué hora para de llover?</string>
+    <string name="chip_tomorrow">¿Cómo estará mañana?</string>
+
+    <!-- Búsqueda de ciudad y Permisos -->
+    <string name="permission_title">Permiso de ubicación</string>
+    <string name="permission_explanation">Necesitamos tu ubicación aproximada para mostrar el clima real de tu zona. Si lo prefieres, puedes buscar tu ciudad manualmente.</string>
+    <string name="permission_grant_button">Permitir ubicación</string>
+    <string name="search_city_button">Buscar ciudad</string>
+    <string name="search_city_hint">Escribe el nombre de la ciudad</string>
+    <string name="search_city_empty">Sin resultados para esa búsqueda.</string>
+    <string name="cancel_button">Cancelar</string>
+
+    <!-- Estados de error y Gemini -->
+    <string name="ai_missing_key_message">Configura GEMINI_API_KEY en el panel de Secretos para activar la IA.</string>
+    <string name="ai_error_message">No se pudo obtener respuesta de la IA en este momento.</string>
+    <string name="retry_button">Reintentar</string>
+    <string name="offline_updated_at">Sin conexión · Última actualización %1$s</string>
+    <string name="weather_error_generic">No pudimos obtener el clima en este momento.</string>
+
+    <!-- Modo Debug -->
+    <string name="debug_dialog_title">Modo de prueba (Debug)</string>
+    <string name="debug_real_weather_option">Clima real (Open-Meteo)</string>
+    <string name="debug_simulating_label">Simulando: %1$s</string>
 </resources>

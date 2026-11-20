@@ -5,22 +5,18 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.BuildConfig
 import com.example.data.local.ClimaPreferencesDataStore
-import com.example.data.local.KeystoreCryptoManager
 import com.example.data.local.LocationHelper
 import com.example.data.remote.NetworkModule
-import com.example.data.repository.AiResponseResult
-import com.example.data.repository.ConnectionTestResult
-import com.example.data.repository.GeminiWeatherRepository
+import com.example.data.repository.AiOutcome
+import com.example.data.repository.AiRepository
+import com.example.data.repository.GeminiAiRepository
 import com.example.data.repository.OpenMeteoWeatherDataSource
-import com.example.data.repository.OpenWeatherDemoDataSource
 import com.example.data.repository.WeatherFetchResult
 import com.example.data.repository.WeatherRepository
-import com.example.domain.LocalRecommendationsEngine
+import com.example.model.ChatMessage
+import com.example.model.ChatSender
 import com.example.model.CitySearchResult
-import com.example.model.GeminiModelOption
 import com.example.model.MockWeatherFactory
-import com.example.model.WeatherChipType
-import com.example.model.WeatherProviderOption
 import com.example.model.WeatherSnapshot
 import com.example.model.WeatherVisualState
 import com.example.ui.state.ClimaUiState
@@ -31,54 +27,56 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 class ClimaViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val cryptoManager = KeystoreCryptoManager()
     private val prefs = ClimaPreferencesDataStore(
         context = application,
         moshi = NetworkModule.moshi,
-        cryptoManager = cryptoManager,
     )
     private val locationHelper = LocationHelper(application)
-    private val openMeteoDataSource = OpenMeteoWeatherDataSource(
+    private val weatherDataSource = OpenMeteoWeatherDataSource(
         forecastApi = NetworkModule.forecastApi,
         geocodingApi = NetworkModule.geocodingApi,
     )
-    private val openWeatherDemoDataSource = OpenWeatherDemoDataSource()
     private val weatherRepository = WeatherRepository(
-        dataSources = mapOf(
-            WeatherProviderOption.OPEN_METEO to openMeteoDataSource,
-            WeatherProviderOption.OPEN_WEATHER_DEMO to openWeatherDemoDataSource,
-        ),
+        weatherDataSource = weatherDataSource,
         prefs = prefs,
         locationHelper = locationHelper,
     )
-    private val geminiRepository = GeminiWeatherRepository(
+    private val aiRepository: AiRepository = GeminiAiRepository(
         geminiApi = NetworkModule.geminiApi,
-        prefs = prefs,
+        moshi = NetworkModule.moshi,
     )
 
     private val _uiState = MutableStateFlow(ClimaUiState())
     val uiState: StateFlow<ClimaUiState> = _uiState.asStateFlow()
 
     private var realSnapshot: WeatherSnapshot? = null
-    private var lastRealVisualState: WeatherVisualState? = null
-    private var citySearchJob: Job? = null
-    private var aiJob: Job? = null
+    private var lastUserQuestion: String? = null
+    private var summaryJob: Job? = null
+    private var chatJob: Job? = null
+    private var searchJob: Job? = null
 
     init {
         viewModelScope.launch {
-            prefs.settingsFlow.collect { settings ->
-                _uiState.update { it.copy(settings = settings) }
+            prefs.reduceAnimationsFlow.collect { reduce ->
+                _uiState.update { it.copy(userReduceAnimations = reduce) }
             }
         }
         viewModelScope.launch {
             val cached = weatherRepository.getCachedWeather()
             if (cached != null) {
                 realSnapshot = cached
-                lastRealVisualState = cached.visualState
-                applyRealSnapshot(cached, isOfflineFallback = false)
+                _uiState.update {
+                    it.copy(
+                        activeSnapshot = cached,
+                        isLoading = false,
+                        needsLocationPermission = false,
+                    )
+                }
+                loadAiSummary(cached)
             }
             refreshWeather(forceRefresh = false)
         }
@@ -86,69 +84,77 @@ class ClimaViewModel(application: Application) : AndroidViewModel(application) {
 
     fun hasLocationPermission(): Boolean = locationHelper.hasCoarseLocationPermission()
 
-    fun onLocationPermissionResult(granted: Boolean) {
-        viewModelScope.launch {
-            if (granted) {
-                val res = weatherRepository.switchToAutoLocation()
-                handleWeatherFetchResult(res)
-            } else {
-                val saved = weatherRepository.getSavedLocation()
-                if (saved == null && realSnapshot == null && !_uiState.value.isDebugSimulationActive) {
-                    _uiState.update {
-                        it.copy(
-                            isLoadingWeather = false,
-                            needsLocationSelection = true,
-                            isCitySearchOpen = true,
-                        )
-                    }
-                }
+    fun onPermissionResult(granted: Boolean) {
+        if (granted) {
+            viewModelScope.launch {
+                _uiState.update { it.copy(isLoading = realSnapshot == null, needsLocationPermission = false) }
+                handleWeatherResult(weatherRepository.switchToAutoLocation())
+            }
+        } else if (realSnapshot == null && !_uiState.value.isDebugSimulationActive) {
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    isRefreshing = false,
+                    needsLocationPermission = true,
+                )
             }
         }
     }
 
-    fun refreshWeather(forceRefresh: Boolean) {
+    fun refreshWeather(forceRefresh: Boolean = true) {
         if (_uiState.value.isDebugSimulationActive) {
-            _uiState.update { it.copy(isRefreshing = false, isLoadingWeather = false) }
+            _uiState.update { it.copy(isLoading = false, isRefreshing = false) }
             return
         }
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
-                    isRefreshing = forceRefresh,
-                    isLoadingWeather = realSnapshot == null,
-                    weatherErrorMessage = null,
+                    isRefreshing = forceRefresh && realSnapshot != null,
+                    isLoading = realSnapshot == null,
+                    weatherError = null,
                 )
             }
-            val result = weatherRepository.loadWeather(forceRefresh = forceRefresh)
-            handleWeatherFetchResult(result)
+            handleWeatherResult(weatherRepository.loadWeather())
         }
     }
 
-    private suspend fun handleWeatherFetchResult(result: WeatherFetchResult) {
+    fun useAutoLocation() {
+        closeCitySearch()
+        if (_uiState.value.isDebugSimulationActive) {
+            exitDebugSimulation()
+        }
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = realSnapshot == null, isRefreshing = realSnapshot != null, weatherError = null) }
+            handleWeatherResult(weatherRepository.switchToAutoLocation())
+        }
+    }
+
+    private fun handleWeatherResult(result: WeatherFetchResult) {
         when (result) {
             is WeatherFetchResult.Success -> {
                 realSnapshot = result.snapshot
-                val stateChanged = lastRealVisualState != null &&
-                    lastRealVisualState != result.snapshot.visualState
-                lastRealVisualState = result.snapshot.visualState
-
-                if (!_uiState.value.isDebugSimulationActive) {
-                    applyRealSnapshot(
-                        snapshot = result.snapshot,
-                        isOfflineFallback = result.isOfflineFallback,
-                        clearChip = stateChanged,
-                    )
-                    loadAutoSummaryFor(result.snapshot)
-                }
-            }
-
-            is WeatherFetchResult.NeedsLocation -> {
                 if (!_uiState.value.isDebugSimulationActive) {
                     _uiState.update {
                         it.copy(
-                            isLoadingWeather = false,
+                            activeSnapshot = result.snapshot,
+                            isLoading = false,
                             isRefreshing = false,
-                            needsLocationSelection = true,
+                            needsLocationPermission = false,
+                            isOfflineFallback = result.isOfflineFallback,
+                            weatherError = null,
+                        )
+                    }
+                    loadAiSummary(result.snapshot)
+                }
+            }
+
+            is WeatherFetchResult.NeedsLocationPermission -> {
+                if (!_uiState.value.isDebugSimulationActive) {
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            isRefreshing = false,
+                            needsLocationPermission = realSnapshot == null,
                         )
                     }
                 }
@@ -158,9 +164,9 @@ class ClimaViewModel(application: Application) : AndroidViewModel(application) {
                 if (!_uiState.value.isDebugSimulationActive) {
                     _uiState.update {
                         it.copy(
-                            isLoadingWeather = false,
+                            isLoading = false,
                             isRefreshing = false,
-                            weatherErrorMessage = result.message,
+                            weatherError = result.message,
                         )
                     }
                 }
@@ -168,215 +174,14 @@ class ClimaViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun applyRealSnapshot(
-        snapshot: WeatherSnapshot,
-        isOfflineFallback: Boolean,
-        clearChip: Boolean = false,
-    ) {
-        val recs = LocalRecommendationsEngine.evaluate(snapshot)
-        _uiState.update { current ->
-            current.copy(
-                activeSnapshot = snapshot,
-                recommendations = recs,
-                selectedChip = if (clearChip) null else current.selectedChip,
-                isLoadingWeather = false,
-                isRefreshing = false,
-                isOfflineFallback = isOfflineFallback,
-                needsLocationSelection = false,
-                weatherErrorMessage = null,
-                aiCardText = current.aiCardText.ifBlank {
-                    LocalRecommendationsEngine.buildFallbackSummary(snapshot)
-                },
-            )
-        }
-    }
-
-    private fun loadAutoSummaryFor(snapshot: WeatherSnapshot) {
-        aiJob?.cancel()
-        aiJob = viewModelScope.launch {
-            val settings = _uiState.value.settings
-            if (settings.aiEnabled && settings.apiKey.isNotBlank()) {
-                _uiState.update { it.copy(isAiThinking = true, bottomBarNotice = null) }
-            }
-            when (
-                val res = geminiRepository.getOrGenerateAutoSummary(
-                    snapshot = snapshot,
-                    aiEnabled = settings.aiEnabled,
-                    apiKey = settings.apiKey,
-                    model = settings.selectedModel,
-                )
-            ) {
-                is AiResponseResult.Success -> {
-                    _uiState.update {
-                        it.copy(
-                            isAiThinking = false,
-                            aiCardText = res.text,
-                            aiAnimationKey = it.aiAnimationKey + 1,
-                            bottomBarNotice = null,
-                        )
-                    }
-                }
-                is AiResponseResult.Fallback -> {
-                    _uiState.update {
-                        it.copy(
-                            isAiThinking = false,
-                            aiCardText = res.text,
-                            aiAnimationKey = it.aiAnimationKey + 1,
-                            bottomBarNotice = res.noticeMessage,
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    fun onChipSelected(chip: WeatherChipType) {
-        val snapshot = _uiState.value.activeSnapshot ?: return
-        if (_uiState.value.selectedChip == chip) {
-            _uiState.update { it.copy(selectedChip = null) }
-            if (_uiState.value.isDebugSimulationActive) {
-                _uiState.update {
-                    it.copy(
-                        aiCardText = MockWeatherFactory.simulatedAiSummary(snapshot),
-                        aiAnimationKey = it.aiAnimationKey + 1,
-                    )
-                }
-            } else {
-                loadAutoSummaryFor(snapshot)
-            }
-            return
-        }
-
-        _uiState.update { it.copy(selectedChip = chip, bottomBarNotice = null) }
-
-        if (_uiState.value.isDebugSimulationActive) {
-            val simulatedAnswer = LocalRecommendationsEngine.buildFallbackChipAnswer(chip, snapshot)
-            _uiState.update {
-                it.copy(
-                    isAiThinking = false,
-                    aiCardText = simulatedAnswer,
-                    aiAnimationKey = it.aiAnimationKey + 1,
-                )
-            }
-            return
-        }
-
-        aiJob?.cancel()
-        aiJob = viewModelScope.launch {
-            val settings = _uiState.value.settings
-            if (settings.aiEnabled && settings.apiKey.isNotBlank()) {
-                _uiState.update { it.copy(isAiThinking = true) }
-            }
-            when (
-                val res = geminiRepository.askChipQuestion(
-                    chip = chip,
-                    snapshot = snapshot,
-                    aiEnabled = settings.aiEnabled,
-                    apiKey = settings.apiKey,
-                    model = settings.selectedModel,
-                )
-            ) {
-                is AiResponseResult.Success -> {
-                    _uiState.update {
-                        it.copy(
-                            isAiThinking = false,
-                            aiCardText = res.text,
-                            aiAnimationKey = it.aiAnimationKey + 1,
-                            bottomBarNotice = null,
-                        )
-                    }
-                }
-                is AiResponseResult.Fallback -> {
-                    _uiState.update {
-                        it.copy(
-                            isAiThinking = false,
-                            aiCardText = res.text,
-                            aiAnimationKey = it.aiAnimationKey + 1,
-                            bottomBarNotice = res.noticeMessage,
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    fun onAskCustomQuestion(question: String) {
-        val trimmed = question.trim()
-        if (trimmed.isEmpty()) return
-        val snapshot = _uiState.value.activeSnapshot ?: return
-
-        if (_uiState.value.isDebugSimulationActive) {
-            val simulatedAnswer =
-                "En modo de prueba (${snapshot.conditionLabel}, ${snapshot.temperatureC.toInt()}°): " +
-                    LocalRecommendationsEngine.buildFallbackSummary(snapshot)
-            _uiState.update {
-                it.copy(
-                    selectedChip = null,
-                    isAiThinking = false,
-                    aiCardText = simulatedAnswer,
-                    aiAnimationKey = it.aiAnimationKey + 1,
-                )
-            }
-            return
-        }
-
-        aiJob?.cancel()
-        aiJob = viewModelScope.launch {
-            val settings = _uiState.value.settings
-            if (!settings.aiEnabled) {
-                _uiState.update { it.copy(bottomBarNotice = "Activa la IA en Ajustes") }
-                return@launch
-            }
-            if (settings.apiKey.isBlank()) {
-                _uiState.update { it.copy(bottomBarNotice = "Agrega tu clave de Gemini en Ajustes") }
-                return@launch
-            }
-
-            _uiState.update { it.copy(selectedChip = null, isAiThinking = true, bottomBarNotice = null) }
-            when (
-                val res = geminiRepository.askCustomQuestion(
-                    question = trimmed,
-                    snapshot = snapshot,
-                    aiEnabled = settings.aiEnabled,
-                    apiKey = settings.apiKey,
-                    model = settings.selectedModel,
-                )
-            ) {
-                is AiResponseResult.Success -> {
-                    _uiState.update {
-                        it.copy(
-                            isAiThinking = false,
-                            aiCardText = res.text,
-                            aiAnimationKey = it.aiAnimationKey + 1,
-                            bottomBarNotice = null,
-                        )
-                    }
-                }
-                is AiResponseResult.Fallback -> {
-                    _uiState.update {
-                        it.copy(
-                            isAiThinking = false,
-                            aiCardText = res.text,
-                            aiAnimationKey = it.aiAnimationKey + 1,
-                            bottomBarNotice = res.noticeMessage,
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    fun clearBottomBarNotice() {
-        _uiState.update { it.copy(bottomBarNotice = null) }
-    }
-
-    // --- City Search ---
+    // --- Manual City Search (fallback when permission denied or chosen from menu) ---
 
     fun openCitySearch() {
         _uiState.update { it.copy(isCitySearchOpen = true) }
     }
 
     fun closeCitySearch() {
+        searchJob?.cancel()
         _uiState.update {
             it.copy(
                 isCitySearchOpen = false,
@@ -389,18 +194,18 @@ class ClimaViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onCitySearchQueryChanged(query: String) {
         _uiState.update { it.copy(citySearchQuery = query) }
-        citySearchJob?.cancel()
+        searchJob?.cancel()
         if (query.trim().length < 2) {
             _uiState.update { it.copy(citySearchResults = emptyList(), isSearchingCities = false) }
             return
         }
-        citySearchJob = viewModelScope.launch {
+        searchJob = viewModelScope.launch {
             _uiState.update { it.copy(isSearchingCities = true) }
-            delay(320)
-            val result = weatherRepository.searchCities(query)
+            delay(300L)
+            val results = weatherRepository.searchCities(query).getOrDefault(emptyList())
             _uiState.update {
                 it.copy(
-                    citySearchResults = result.getOrDefault(emptyList()),
+                    citySearchResults = results,
                     isSearchingCities = false,
                 )
             }
@@ -413,95 +218,182 @@ class ClimaViewModel(application: Application) : AndroidViewModel(application) {
             exitDebugSimulation()
         }
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoadingWeather = true, weatherErrorMessage = null) }
-            val result = weatherRepository.selectManualCity(city)
-            handleWeatherFetchResult(result)
-        }
-    }
-
-    fun onUseAutoLocationClicked() {
-        closeCitySearch()
-        if (_uiState.value.isDebugSimulationActive) {
-            exitDebugSimulation()
-        }
-        viewModelScope.launch {
-            _uiState.update { it.copy(isLoadingWeather = true, weatherErrorMessage = null) }
-            val result = weatherRepository.switchToAutoLocation()
-            handleWeatherFetchResult(result)
-        }
-    }
-
-    // --- Settings ---
-
-    fun setAiEnabled(enabled: Boolean, consentAccepted: Boolean) {
-        viewModelScope.launch {
-            prefs.setAiEnabled(enabled, consentAccepted)
-        }
-    }
-
-    fun saveApiKey(rawKey: String) {
-        viewModelScope.launch {
-            prefs.saveApiKey(rawKey)
-            _uiState.update { it.copy(connectionTestResult = ConnectionTestResult.Idle) }
-        }
-    }
-
-    fun selectGeminiModel(model: GeminiModelOption) {
-        viewModelScope.launch {
-            prefs.setSelectedModel(model)
-            _uiState.update { it.copy(connectionTestResult = ConnectionTestResult.Idle) }
-        }
-    }
-
-    fun selectWeatherProvider(provider: WeatherProviderOption) {
-        viewModelScope.launch {
-            val changed = _uiState.value.settings.selectedWeatherProvider != provider
-            prefs.setSelectedWeatherProvider(provider)
-            if (changed) {
-                if (_uiState.value.isDebugSimulationActive) {
-                    _uiState.update { it.copy(debugSimulatedState = null) }
-                }
-                _uiState.update {
-                    it.copy(
-                        isRefreshing = true,
-                        weatherErrorMessage = null,
-                    )
-                }
-                val result = weatherRepository.loadWeather(
-                    forceRefresh = true,
-                    providerOverride = provider,
+            _uiState.update {
+                it.copy(
+                    isLoading = true,
+                    needsLocationPermission = false,
+                    weatherError = null,
                 )
-                handleWeatherFetchResult(result)
+            }
+            handleWeatherResult(weatherRepository.selectManualCity(city))
+        }
+    }
+
+    // --- Reduce Animations ---
+
+    fun toggleReduceAnimations() {
+        viewModelScope.launch {
+            prefs.setReduceAnimations(!_uiState.value.userReduceAnimations)
+        }
+    }
+
+    // --- Gemini AI Summary & Chat ---
+
+    private fun loadAiSummary(snapshot: WeatherSnapshot) {
+        summaryJob?.cancel()
+        summaryJob = viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isAiSummaryLoading = true,
+                    aiSummaryError = null,
+                    aiMissingKeyMessage = null,
+                )
+            }
+            when (val outcome = aiRepository.generateSummary(snapshot)) {
+                is AiOutcome.Success -> {
+                    _uiState.update {
+                        it.copy(
+                            isAiSummaryLoading = false,
+                            aiSummary = outcome.reply.text,
+                            aiSummaryKey = it.aiSummaryKey + 1,
+                            aiSummaryError = null,
+                            aiMissingKeyMessage = null,
+                        )
+                    }
+                }
+
+                is AiOutcome.MissingApiKey -> {
+                    _uiState.update {
+                        it.copy(
+                            isAiSummaryLoading = false,
+                            aiSummaryError = null,
+                            aiMissingKeyMessage = outcome.message,
+                        )
+                    }
+                }
+
+                is AiOutcome.Error -> {
+                    _uiState.update {
+                        it.copy(
+                            isAiSummaryLoading = false,
+                            aiSummaryError = outcome.message,
+                            aiMissingKeyMessage = null,
+                        )
+                    }
+                }
             }
         }
     }
 
-    fun testGeminiConnection(currentKeyInput: String) {
-        viewModelScope.launch {
-            val trimmed = currentKeyInput.trim()
-            if (trimmed.isNotEmpty()) {
-                prefs.saveApiKey(trimmed)
-            }
-            _uiState.update { it.copy(connectionTestResult = ConnectionTestResult.Testing) }
-            val res = geminiRepository.testConnection(
-                apiKey = trimmed.ifEmpty { _uiState.value.settings.apiKey },
-                model = _uiState.value.settings.selectedModel,
+    fun retryAiSummary() {
+        val snapshot = _uiState.value.activeSnapshot ?: return
+        loadAiSummary(snapshot)
+    }
+
+    fun sendChatMessage(rawQuestion: String) {
+        val question = rawQuestion.trim()
+        if (question.isEmpty()) return
+        val snapshot = _uiState.value.activeSnapshot ?: return
+
+        lastUserQuestion = question
+        val userMessage = ChatMessage(
+            id = UUID.randomUUID().toString(),
+            sender = ChatSender.User,
+            text = question,
+        )
+        _uiState.update {
+            it.copy(
+                chatMessages = it.chatMessages + userMessage,
+                isChatSending = true,
             )
-            _uiState.update { it.copy(connectionTestResult = res) }
+        }
+        executeChatReply(question = question, snapshot = snapshot)
+    }
+
+    fun retryLastChatQuestion() {
+        val question = lastUserQuestion ?: return
+        val snapshot = _uiState.value.activeSnapshot ?: return
+        _uiState.update { current ->
+            val trimmed = if (current.chatMessages.lastOrNull()?.isError == true) {
+                current.chatMessages.dropLast(1)
+            } else {
+                current.chatMessages
+            }
+            current.copy(
+                chatMessages = trimmed,
+                isChatSending = true,
+            )
+        }
+        executeChatReply(question = question, snapshot = snapshot)
+    }
+
+    private fun executeChatReply(
+        question: String,
+        snapshot: WeatherSnapshot,
+    ) {
+        chatJob?.cancel()
+        chatJob = viewModelScope.launch {
+            when (val outcome = aiRepository.askQuestion(question, snapshot)) {
+                is AiOutcome.Success -> {
+                    val aiMsg = ChatMessage(
+                        id = UUID.randomUUID().toString(),
+                        sender = ChatSender.Ai,
+                        text = outcome.reply.text,
+                        rainBars = outcome.reply.rainBars,
+                    )
+                    _uiState.update {
+                        it.copy(
+                            chatMessages = it.chatMessages + aiMsg,
+                            isChatSending = false,
+                        )
+                    }
+                }
+
+                is AiOutcome.MissingApiKey -> {
+                    val errorMsg = ChatMessage(
+                        id = UUID.randomUUID().toString(),
+                        sender = ChatSender.Ai,
+                        text = outcome.message,
+                        isError = true,
+                    )
+                    _uiState.update {
+                        it.copy(
+                            chatMessages = it.chatMessages + errorMsg,
+                            isChatSending = false,
+                        )
+                    }
+                }
+
+                is AiOutcome.Error -> {
+                    val errorMsg = ChatMessage(
+                        id = UUID.randomUUID().toString(),
+                        sender = ChatSender.Ai,
+                        text = outcome.message,
+                        isError = true,
+                    )
+                    _uiState.update {
+                        it.copy(
+                            chatMessages = it.chatMessages + errorMsg,
+                            isChatSending = false,
+                        )
+                    }
+                }
+            }
         }
     }
 
-    fun resetConnectionTestState() {
-        _uiState.update { it.copy(connectionTestResult = ConnectionTestResult.Idle) }
-    }
-
-    fun setReduceAnimations(reduce: Boolean) {
-        viewModelScope.launch {
-            prefs.setReduceAnimations(reduce)
+    fun clearChatHistory() {
+        chatJob?.cancel()
+        lastUserQuestion = null
+        _uiState.update {
+            it.copy(
+                chatMessages = emptyList(),
+                isChatSending = false,
+            )
         }
     }
 
-    // --- Debug Test Mode (Isolated, strictly guarded by BuildConfig.DEBUG) ---
+    // --- Hidden Debug Test Mode (BuildConfig.DEBUG only) ---
 
     fun selectDebugWeatherState(state: WeatherVisualState?) {
         if (!BuildConfig.DEBUG) return
@@ -509,58 +401,45 @@ class ClimaViewModel(application: Application) : AndroidViewModel(application) {
             exitDebugSimulation()
             return
         }
-        aiJob?.cancel()
-        val cityName = realSnapshot?.cityName ?: "Ciudad de México"
-        val mockSnapshot = MockWeatherFactory.createForState(
+        val cityName = realSnapshot?.cityName ?: "Tu ubicación"
+        val simulated = MockWeatherFactory.createForState(
             state = state,
             cityName = cityName,
         )
-        val mockRecommendations = LocalRecommendationsEngine.evaluate(mockSnapshot)
-        val mockSummary = MockWeatherFactory.simulatedAiSummary(mockSnapshot)
-
-        _uiState.update { current ->
-            current.copy(
+        _uiState.update {
+            it.copy(
                 debugSimulatedState = state,
-                activeSnapshot = mockSnapshot,
-                recommendations = mockRecommendations,
-                selectedChip = null,
-                isAiThinking = false,
-                aiCardText = mockSummary,
-                aiAnimationKey = current.aiAnimationKey + 1,
-                bottomBarNotice = null,
-                isLoadingWeather = false,
+                activeSnapshot = simulated,
+                isLoading = false,
                 isRefreshing = false,
+                needsLocationPermission = false,
                 isOfflineFallback = false,
-                needsLocationSelection = false,
-                weatherErrorMessage = null,
+                weatherError = null,
             )
         }
+        loadAiSummary(simulated)
     }
 
     fun exitDebugSimulation() {
         if (!BuildConfig.DEBUG) return
         val restored = realSnapshot
         if (restored != null) {
-            _uiState.update { current ->
-                current.copy(
+            _uiState.update {
+                it.copy(
                     debugSimulatedState = null,
                     activeSnapshot = restored,
-                    recommendations = LocalRecommendationsEngine.evaluate(restored),
-                    selectedChip = null,
-                    isAiThinking = false,
-                    aiCardText = LocalRecommendationsEngine.buildFallbackSummary(restored),
-                    aiAnimationKey = current.aiAnimationKey + 1,
-                    bottomBarNotice = null,
+                    isLoading = false,
+                    isRefreshing = false,
+                    needsLocationPermission = false,
+                    weatherError = null,
                 )
             }
-            loadAutoSummaryFor(restored)
+            loadAiSummary(restored)
         } else {
             _uiState.update {
                 it.copy(
                     debugSimulatedState = null,
                     activeSnapshot = null,
-                    selectedChip = null,
-                    bottomBarNotice = null,
                 )
             }
             refreshWeather(forceRefresh = false)

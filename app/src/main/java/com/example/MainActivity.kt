@@ -6,21 +6,21 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.ui.screens.MainWeatherScreen
-import com.example.ui.screens.SettingsScreen
-import com.example.ui.screens.WeatherDetailsScreen
+import com.example.ui.screens.WeatherChatScreen
 import com.example.ui.theme.ClimaTheme
 import com.example.ui.viewmodel.ClimaViewModel
 
 object ClimaRoutes {
     const val MAIN = "main_weather"
-    const val DETAILS = "weather_details"
-    const val SETTINGS = "settings"
+    const val CHAT = "weather_chat"
 }
 
 class MainActivity : ComponentActivity() {
@@ -35,6 +35,10 @@ class MainActivity : ComponentActivity() {
                 val viewModel: ClimaViewModel = viewModel()
                 val uiState by viewModel.uiState.collectAsStateWithLifecycle()
                 val navController = rememberNavController()
+                val currentBackStackEntry by navController.currentBackStackEntryAsState()
+                val canNavigateBack = remember(currentBackStackEntry) {
+                    navController.previousBackStackEntry != null
+                }
 
                 NavHost(
                     navController = navController,
@@ -43,51 +47,35 @@ class MainActivity : ComponentActivity() {
                     composable(ClimaRoutes.MAIN) {
                         MainWeatherScreen(
                             uiState = uiState,
+                            canNavigateBack = canNavigateBack,
                             hasLocationPermission = viewModel::hasLocationPermission,
-                            onLocationPermissionResult = viewModel::onLocationPermissionResult,
+                            onPermissionResult = viewModel::onPermissionResult,
+                            onNavigateBack = { navController.popBackStack() },
                             onRefresh = { viewModel.refreshWeather(forceRefresh = true) },
+                            onUseAutoLocation = viewModel::useAutoLocation,
                             onOpenCitySearch = viewModel::openCitySearch,
                             onCloseCitySearch = viewModel::closeCitySearch,
                             onCityQueryChange = viewModel::onCitySearchQueryChanged,
                             onCitySelected = viewModel::onCitySelected,
-                            onUseAutoLocation = viewModel::onUseAutoLocationClicked,
-                            onChipClick = viewModel::onChipSelected,
-                            onAskQuestion = viewModel::onAskCustomQuestion,
-                            onOpenDetails = {
-                                navController.navigate(ClimaRoutes.DETAILS)
+                            onToggleReduceAnimations = viewModel::toggleReduceAnimations,
+                            onRetryAiSummary = viewModel::retryAiSummary,
+                            onOpenChat = {
+                                navController.navigate(ClimaRoutes.CHAT)
                             },
-                            onOpenSettings = {
-                                viewModel.resetConnectionTestState()
-                                navController.navigate(ClimaRoutes.SETTINGS)
-                            },
+                            onSelectDebugState = viewModel::selectDebugWeatherState,
                             onExitDebugSimulation = viewModel::exitDebugSimulation,
                         )
                     }
 
-                    composable(ClimaRoutes.DETAILS) {
-                        WeatherDetailsScreen(
+                    composable(ClimaRoutes.CHAT) {
+                        WeatherChatScreen(
                             uiState = uiState,
+                            canNavigateBack = canNavigateBack,
                             onNavigateBack = { navController.popBackStack() },
-                        )
-                    }
-
-                    composable(ClimaRoutes.SETTINGS) {
-                        SettingsScreen(
-                            uiState = uiState,
-                            hasLocationPermission = viewModel::hasLocationPermission,
-                            onNavigateBack = { navController.popBackStack() },
-                            onOpenCitySearch = viewModel::openCitySearch,
-                            onCloseCitySearch = viewModel::closeCitySearch,
-                            onCityQueryChange = viewModel::onCitySearchQueryChanged,
-                            onCitySelected = viewModel::onCitySelected,
-                            onUseAutoLocation = viewModel::onUseAutoLocationClicked,
-                            onSetAiEnabled = viewModel::setAiEnabled,
-                            onSaveApiKey = viewModel::saveApiKey,
-                            onSelectModel = viewModel::selectGeminiModel,
-                            onTestConnection = viewModel::testGeminiConnection,
-                            onSelectWeatherProvider = viewModel::selectWeatherProvider,
-                            onSetReduceAnimations = viewModel::setReduceAnimations,
-                            onDebugSelectState = viewModel::selectDebugWeatherState,
+                            onSendMessage = viewModel::sendChatMessage,
+                            onRetryLastQuestion = viewModel::retryLastChatQuestion,
+                            onClearChat = viewModel::clearChatHistory,
+                            onRefreshWeather = { viewModel.refreshWeather(forceRefresh = true) },
                         )
                     }
                 }

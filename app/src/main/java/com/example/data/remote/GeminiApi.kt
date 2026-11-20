@@ -1,16 +1,13 @@
 package com.example.data.remote
 
-import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.Header
 import retrofit2.http.POST
-import retrofit2.http.Path
 
 interface GeminiApi {
-    @POST("v1beta/models/{model}:generateContent")
+    @POST("v1beta/models/gemini-2.5-flash:generateContent")
     suspend fun generateContent(
-        @Path("model") model: String,
         @Header("x-goog-api-key") apiKey: String,
-        @Body body: GeminiGenerateContentRequest,
-    ): Response<GeminiGenerateContentResponse>
+        @Body request: GeminiGenerateContentRequest,
+    ): GeminiGenerateContentResponse
 }

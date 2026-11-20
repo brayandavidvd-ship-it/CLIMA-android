@@ -10,15 +10,15 @@ interface OpenMeteoForecastApi {
         @Query("longitude") longitude: Double,
         @Query("current")
         current: String =
-            "temperature_2m,apparent_temperature,relative_humidity_2m,is_day,precipitation,weather_code,cloud_cover,wind_speed_10m,pressure_msl",
+            "temperature_2m,apparent_temperature,relative_humidity_2m,dew_point_2m,is_day,precipitation,weather_code,cloud_cover,wind_speed_10m,wind_direction_10m,pressure_msl,visibility",
         @Query("hourly")
         hourly: String =
             "temperature_2m,precipitation_probability,weather_code",
         @Query("daily")
         daily: String =
-            "temperature_2m_max,temperature_2m_min,precipitation_probability_max,uv_index_max,sunrise,sunset",
+            "temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,uv_index_max,sunrise,sunset,weather_code",
         @Query("timezone") timezone: String = "auto",
-        @Query("forecast_days") forecastDays: Int = 4,
+        @Query("forecast_days") forecastDays: Int = 10,
     ): OpenMeteoForecastResponse
 }
 

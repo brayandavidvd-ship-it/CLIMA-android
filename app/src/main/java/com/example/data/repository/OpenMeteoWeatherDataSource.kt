@@ -5,7 +5,6 @@ import com.example.data.remote.OpenMeteoGeocodingApi
 import com.example.model.CitySearchResult
 import com.example.model.DailyForecastItem
 import com.example.model.HourlyForecastItem
-import com.example.model.WeatherProviderOption
 import com.example.model.WeatherSnapshot
 
 class OpenMeteoWeatherDataSource(
@@ -26,13 +25,17 @@ class OpenMeteoWeatherDataSource(
         val daily = response.daily
         val hourly = response.hourly
         val currentTime = current.time.orEmpty()
+        val sunrise = daily?.sunrise?.firstOrNull().orEmpty()
+        val sunset = daily?.sunset?.firstOrNull().orEmpty()
+        val sunriseClock = sunrise.substringAfter("T", "").take(5)
+        val sunsetClock = sunset.substringAfter("T", "").take(5)
 
         val hourlyTimes = hourly?.time.orEmpty()
         val hourlyTemps = hourly?.temperature2m.orEmpty()
         val hourlyProbs = hourly?.precipitationProbability.orEmpty()
         val hourlyCodes = hourly?.weatherCode.orEmpty()
 
-        val currentHourPrefix = currentTime.take(13) // e.g. "2026-11-13T12"
+        val currentHourPrefix = currentTime.take(13)
         val startIdx = hourlyTimes.indexOfFirst { it.take(13) >= currentHourPrefix }
             .takeIf { it >= 0 } ?: 0
 
@@ -40,11 +43,19 @@ class OpenMeteoWeatherDataSource(
             .drop(startIdx)
             .take(24)
             .map { i ->
+                val timeStr = hourlyTimes[i]
+                val clock = timeStr.substringAfter("T", "").take(5)
+                val isHourDay = if (sunriseClock.length == 5 && sunsetClock.length == 5 && clock.length == 5) {
+                    clock >= sunriseClock && clock < sunsetClock
+                } else {
+                    (current.isDay ?: 1) == 1
+                }
                 HourlyForecastItem(
-                    timeIso = hourlyTimes[i],
+                    timeIso = timeStr,
                     temperatureC = hourlyTemps.getOrElse(i) { current.temperature2m ?: 20.0 },
                     precipitationProbability = hourlyProbs.getOrElse(i) { 0 },
                     weatherCode = hourlyCodes.getOrElse(i) { current.weatherCode ?: 3 },
+                    isDay = isHourDay,
                 )
             }
 
@@ -52,35 +63,42 @@ class OpenMeteoWeatherDataSource(
         val dailyMax = daily?.temperature2mMax.orEmpty()
         val dailyMin = daily?.temperature2mMin.orEmpty()
         val dailyProbs = daily?.precipitationProbabilityMax.orEmpty()
-        val dailyItems = dailyDates.indices.take(4).map { i ->
+        val dailyCodes = daily?.weatherCode.orEmpty()
+        val dailyItems = dailyDates.indices.take(10).map { i ->
             DailyForecastItem(
                 dateIso = dailyDates[i],
                 tempMaxC = dailyMax.getOrElse(i) { current.temperature2m ?: 20.0 },
                 tempMinC = dailyMin.getOrElse(i) { current.temperature2m ?: 20.0 },
                 precipitationProbabilityMax = dailyProbs.getOrElse(i) { 0 },
+                weatherCode = dailyCodes.getOrElse(i) { current.weatherCode ?: 3 },
             )
         }
 
+        val tempNow = current.temperature2m ?: 20.0
+        val visibilityMeters = current.visibility ?: 16_000.0
+
         return WeatherSnapshot(
             cityName = cityName,
-            temperatureC = current.temperature2m ?: 20.0,
-            apparentTemperatureC = current.apparentTemperature ?: (current.temperature2m ?: 20.0),
+            temperatureC = tempNow,
+            apparentTemperatureC = current.apparentTemperature ?: tempNow,
             humidityPercent = current.relativeHumidity2m ?: 50,
+            dewPointC = current.dewPoint2m ?: (tempNow - 4.0),
             windSpeedKmh = current.windSpeed10m ?: 0.0,
+            windDirectionDegrees = current.windDirection10m ?: 0,
             pressureHpa = current.pressureMsl ?: 1013.0,
-            precipitationMm = current.precipitation ?: 0.0,
+            visibilityKm = visibilityMeters / 1000.0,
+            precipitationTodayMm = daily?.precipitationSum?.firstOrNull() ?: (current.precipitation ?: 0.0),
             precipitationProbabilityMax = dailyProbs.firstOrNull() ?: 0,
             uvIndexMax = daily?.uvIndexMax?.firstOrNull() ?: 0.0,
-            tempMaxC = dailyMax.firstOrNull() ?: (current.temperature2m ?: 20.0),
-            tempMinC = dailyMin.firstOrNull() ?: (current.temperature2m ?: 20.0),
+            tempMaxC = dailyMax.firstOrNull() ?: tempNow,
+            tempMinC = dailyMin.firstOrNull() ?: tempNow,
             weatherCode = current.weatherCode ?: 3,
             isDay = (current.isDay ?: 1) == 1,
             cloudCoverPercent = current.cloudCover ?: 0,
             localTimeIso = currentTime,
-            sunriseIso = daily?.sunrise?.firstOrNull().orEmpty(),
-            sunsetIso = daily?.sunset?.firstOrNull().orEmpty(),
+            sunriseIso = sunrise,
+            sunsetIso = sunset,
             updatedAtMillis = System.currentTimeMillis(),
-            providerId = WeatherProviderOption.OPEN_METEO.id,
             hourlyForecast = hourlyItems,
             dailyForecast = dailyItems,
         )
